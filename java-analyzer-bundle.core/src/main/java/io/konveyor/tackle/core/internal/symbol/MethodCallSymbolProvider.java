@@ -47,7 +47,7 @@ public class MethodCallSymbolProvider implements SymbolProvider, WithQuery {
                         unit = cls.getWorkingCopy(new WorkingCopyOwnerImpl(), null);
                     }
                 }
-                if (this.queryQualificationMatches(this.query, unit, location)) {
+                if (this.queryQualificationMatchesForMethod(this.query, unit, location)) {
                     ASTParser astParser = ASTParser.newParser(AST.getJLSLatest());
                     astParser.setSource(unit);
                     astParser.setResolveBindings(true);
