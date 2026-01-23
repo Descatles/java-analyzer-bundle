@@ -47,6 +47,9 @@ public class SampleDelegateCommandHandler implements IDelegateCommandHandler {
             case RULE_ENTRY_COMMAND_ID:
                 logInfo("Here we get the arguments for rule entry: " + arguments);
                 RuleEntryParams params = new RuleEntryParams(commandId, arguments);
+                logInfo("KONVEYOR_LOG_ENTRY: query=" + params.getQuery() + 
+                    " location=" + params.getLocation() + 
+                    " analysisMode=" + params.getAnalysisMode());
                 return search(params.getProjectName(), params.getIncludedPaths(), params.getQuery(),
                         params.getAnnotationQuery(), params.getLocation(), params.getAnalysisMode(),
                         params.getIncludeOpenSourceLibraries(), params.getMavenLocalRepoPath(),
@@ -192,6 +195,7 @@ public class SampleDelegateCommandHandler implements IDelegateCommandHandler {
 
     private static List<SymbolInformation> search(String projectName, ArrayList<String> includedPaths, String query, AnnotationQuery annotationQuery, int location, String analysisMode,
         boolean includeOpenSourceLibraries, String mavenLocalRepoPath, String mavenIndexPath, IProgressMonitor monitor) throws Exception {
+        long t0 = System.nanoTime();
         IJavaProject[] targetProjects;
         IJavaProject project = ProjectUtils.getJavaProject(projectName);
         if (project != null) {
@@ -213,6 +217,7 @@ public class SampleDelegateCommandHandler implements IDelegateCommandHandler {
             logInfo("KONVEYOR_LOG: waited for source downloads");
         }
 
+        long tMarkersStart = System.nanoTime();
         for (IJavaProject iJavaProject : targetProjects) {
             var errors = ResourceUtils.getErrorMarkers(iJavaProject.getProject());
             var warnings = ResourceUtils.getWarningMarkers(iJavaProject.getProject());
@@ -220,14 +225,16 @@ public class SampleDelegateCommandHandler implements IDelegateCommandHandler {
                 " found errors: " + errors.toString().replace("\n", " ") +
                 " warnings: " + warnings.toString().replace("\n", " "));
         }
+        long tMarkers = System.nanoTime() - tMarkersStart;
 
-		IJavaSearchScope scope;
+        IJavaSearchScope scope;
         var workspaceDirectoryLocation = JavaLanguageServerPlugin.getPreferencesManager().getPreferences().getRootPaths();
         if (workspaceDirectoryLocation == null || workspaceDirectoryLocation.size() == 0) {
             logInfo("unable to find workspace directory location");
             return new ArrayList<>();
         }
-        
+        long tScopeStart = System.nanoTime();
+
         if (includedPaths != null && includedPaths.size() > 0) {
             ArrayList<IJavaElement> includedFragments = new ArrayList<IJavaElement>();
             for (IJavaProject proj : targetProjects) {
@@ -293,6 +300,8 @@ public class SampleDelegateCommandHandler implements IDelegateCommandHandler {
             scope = SearchEngine.createJavaSearchScope(true, targetProjects, s);
         }
 
+        long tScope = System.nanoTime() - tScopeStart;
+
         // Use a filtered scope when open source libraries are not included
         if (!includeOpenSourceLibraries) {
             scope = new OpenSourceFilteredSearchScope(scope,
@@ -320,17 +329,31 @@ public class SampleDelegateCommandHandler implements IDelegateCommandHandler {
         SearchParticipant participent = new JavaSearchParticipant();
         SearchParticipant[] participents = new SearchParticipant[]{participent};
 
+        long tSearchStart = System.nanoTime();
         try {
             searchEngine.search(pattern, participents, scope, requestor, monitor);
         } catch (Exception e) {
             // TODO: handle exception
             logInfo("KONVEYOR_LOG: unable to get search " + e.toString().replace("\n", " "));
         }
+        long tSearch = System.nanoTime() - tSearchStart;
+
+        long tTotal = System.nanoTime() - t0;
 
         logInfo("KONVEYOR_LOG: got: " + requestor.getAllSearchMatches() +
             " search matches for " + query +
             " location " + location
             + " matches" + requestor.getSymbols().size());
+
+        logInfo("KONVEYOR_LOG_PROFILE: query=" + query +
+            " location=" + location +
+            " includedPaths=" + (includedPaths == null ? 0 : includedPaths.size()) +
+            " totalMs=" + (tTotal / 1_000_000) +
+            " markersMs=" + (tMarkers / 1_000_000) +
+            " scopeMs=" + (tScope / 1_000_000) +
+            " searchMs=" + (tSearch / 1_000_000) +
+            " providerMs=" + (requestor.getTotalProviderNanos() / 1_000_000) +
+            " providerCalls=" + requestor.getProviderCalls());
 
         return requestor.getSymbols();
 

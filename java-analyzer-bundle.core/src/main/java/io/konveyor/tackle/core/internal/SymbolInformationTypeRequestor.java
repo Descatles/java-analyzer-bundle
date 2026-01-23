@@ -33,6 +33,8 @@ public class SymbolInformationTypeRequestor extends SearchRequestor {
     private String query;
     private AnnotationQuery annotationQuery;
     private SymbolProviderResolver resolver;
+    private long totalProviderNanos;
+    private int providerCalls;
 
 
     public SymbolInformationTypeRequestor(List<SymbolInformation> symbols, int maxResults, IProgressMonitor monitor, int symbolKind, String query, AnnotationQuery annotationQuery) {
@@ -85,7 +87,11 @@ public class SymbolInformationTypeRequestor extends SearchRequestor {
         }
 
         logInfo("getting match: " + match + "with provider: " + symbolProvider);
+        long start = System.nanoTime();
         List<SymbolInformation> symbols = Optional.ofNullable(symbolProvider.get(match)).orElse(new ArrayList<>());
+        long elapsed = System.nanoTime() - start;
+        totalProviderNanos += elapsed;
+        providerCalls++;
         this.symbols.addAll(symbols);
     }
 
@@ -95,6 +101,14 @@ public class SymbolInformationTypeRequestor extends SearchRequestor {
 
     public int getAllSearchMatches() {
         return this.numberSearchMatches;
+    }
+
+    public long getTotalProviderNanos() {
+        return this.totalProviderNanos;
+    }
+
+    public int getProviderCalls() {
+        return this.providerCalls;
     }
 
     // This will determine if there are error markers for the primary element that is associated with this

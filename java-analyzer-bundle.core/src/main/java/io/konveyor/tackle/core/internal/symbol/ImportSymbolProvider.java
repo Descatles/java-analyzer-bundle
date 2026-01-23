@@ -1,7 +1,5 @@
 package io.konveyor.tackle.core.internal.symbol;
 
-import static org.eclipse.jdt.ls.core.internal.JavaLanguageServerPlugin.logInfo;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -15,18 +13,22 @@ public class ImportSymbolProvider implements SymbolProvider {
     @Override
     public List<SymbolInformation> get(SearchMatch match) throws CoreException {
         List<SymbolInformation> symbols = new ArrayList<>();
-        try {
-            IImportDeclaration mod = (IImportDeclaration) match.getElement();
-            SymbolInformation symbol = new SymbolInformation();
-            symbol.setName(mod.getElementName());
-            symbol.setKind(convertSymbolKind((IJavaElement) match.getElement()));
-            symbol.setContainerName(mod.getParent().getElementName());
-            symbol.setLocation(getLocation(mod, match));
-            symbols.add(symbol);
-        } catch (Exception e) {
-            logInfo("unable to get for import: " + e);
+        IJavaElement element = (IJavaElement) match.getElement();
+        // For import-location rules we are only interested in real import declarations.
+        // JDT search for TYPE + ALL_OCCURRENCES may return many other element kinds
+        // (methods, fields, binary types, etc.). Those should simply be ignored
+        // instead of causing ClassCastException and noisy logs.
+        if (!(element instanceof IImportDeclaration)) {
             return null;
         }
+
+        IImportDeclaration mod = (IImportDeclaration) element;
+        SymbolInformation symbol = new SymbolInformation();
+        symbol.setName(mod.getElementName());
+        symbol.setKind(convertSymbolKind(element));
+        symbol.setContainerName(mod.getParent().getElementName());
+        symbol.setLocation(getLocation(mod, match));
+        symbols.add(symbol);
         return symbols;
     }
 }
