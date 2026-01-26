@@ -187,34 +187,57 @@ public interface SymbolProvider {
 		position.setCharacter(coords[1]);
 	}
 
+
     /*
-     * Given a query, class and location of a Match, tells whether CompilationUnit of the match
-     * matches the qualification part of the query. For example, if the query is `konveyor.io.Util.get*`,
-     * qualification means `konveyor.io.Util`. This is so that we can improve accuracy of a match of 
-     * queries that are looking for FQNs. For query `konveyor.io.Util.get*`, returns true if either one is true:
+     * For constructor calls like `java.util.ArrayList()` or `java.util.ArrayList(int)`
+     * Extracts the class qualification and delegates to queryQualificationMatches
+     */
+    default boolean queryQualificationMatchesForConstructor(String query, IJavaElement matchedElement, ICompilationUnit unit, Location location) {
+        // Remove any parentheses and their contents
+        String className = query.replaceAll("\\(.*\\)", "");
+        className = className.replaceAll("(?<!\\.)\\*", ".*");
+        
+        // For constructors, the entire className is the qualification
+        return queryQualificationMatches(query, className, matchedElement, unit, location);
+    }
+
+    /*
+     * For method calls like `konveyor.io.Util.get*` or `java.nio.file.Paths.get(String)`
+     * Extracts the class qualification (everything before method name) and delegates to queryQualificationMatches
+     */
+    default boolean queryQualificationMatchesForMethod(String query, IJavaElement matchedElement, ICompilationUnit unit, Location location) {
+        // Remove any parentheses and their contents
+        String cleanQuery = query.replaceAll("\\(.*\\)", "");
+        cleanQuery = cleanQuery.replaceAll("(?<!\\.)\\*", ".*");
+        
+        String queryQualification = "";
+        int dotIndex = cleanQuery.lastIndexOf('.');
+        if (dotIndex > 0) {
+            // For a method query like java.io.paths.File.method*, queryQualification is java.io.paths.File
+            queryQualification = cleanQuery.substring(0, dotIndex);
+        }
+        
+        // Delegate to the main matching logic with the extracted qualification
+        return queryQualificationMatches(query, queryQualification, matchedElement, unit, location);
+    }
+
+    /*
+     * Given a query qualification and location of a Match, tells whether CompilationUnit of the match
+     * matches the qualification part of the query. For example, if the qualification is `konveyor.io.Util`,
+     * returns true if either one is true:
      *  1. match is found in the package `konveyor.io` or class `konveyor.io.Util` 
      *  2. the compilation unit imports package `konveyor.io.Util` or `konveyor.io.*`
      *  3. the compilation unit has a package declaration as `konveyor.io.Util`
      * we do this so that we can rule out a lot of matches before going the AST route
      */
-    default boolean queryQualificationMatches(String query, IJavaElement matchedElement,ICompilationUnit unit, Location location) {
+    default boolean queryQualificationMatches(String query, String queryQualification, IJavaElement matchedElement, ICompilationUnit unit, Location location) {
         // Make sure that the ICompilationUnit is conistant
         try {
             unit.makeConsistent(null);
         } catch(Exception e) {
             logInfo("unable to make unit consistant, will still try as could be class file in a jar" + e);
         }
-        // should consider parameter here
-        // e.g. java.nio.file.Paths.get(String)/java.nio.file.Paths.get(*)  -> java.nio.file.Paths.get
-        // Remove any parentheses and their contents
-        query = query.replaceAll("\\([^|]*\\)", "");
-        query = query.replaceAll("(?<!\\.)\\*", ".*");
-        String queryQualification = "";
-        int dotIndex = query.lastIndexOf('.');
-        if (dotIndex > 0) {
-            // for a query, java.io.paths.File*, queryQualification is java.io.paths
-            queryQualification = query.substring(0, dotIndex);
-        }
+        
         // an element need not be imported if its referenced by fqn
         if (!queryQualification.isEmpty() && (
                 matchedElement.getElementName().equals(queryQualification)
@@ -241,6 +264,12 @@ public interface SymbolProvider {
                         return true;
                     }
                 }
+                
+                // Handle java.lang.* automatic imports
+                if (queryQualification.startsWith("java.lang.") || queryQualification.equals("java.lang")) {
+                    return true;
+                }
+                
                 for (IImportDeclaration importDecl : unit.getImports()) {
                     String importElement = importDecl.getElementName();
                     String importQualification = "";
@@ -253,6 +282,12 @@ public interface SymbolProvider {
                         return true;
                     }
                     if (importElement.matches(query)) {
+                        return true;
+                    }
+                    if (queryQualification.matches(importElement)) {
+                        return true;
+                    }
+                    if (importElement.matches(queryQualification)) {
                         return true;
                     }
                     // an import can be java.io.paths.* or java.io.*
@@ -279,5 +314,25 @@ public interface SymbolProvider {
             }
         }
         return false;
+    }
+
+    /*
+     * Backward compatibility method - delegates to the new signature with queryQualification parameter
+     * For generic cases where the query qualification needs to be extracted from the query itself
+     */
+    default boolean queryQualificationMatches(String query, IJavaElement matchedElement, ICompilationUnit unit, Location location) {
+        // Remove any parentheses and their contents
+        String cleanQuery = query.replaceAll("\\(.*\\)", "");
+        cleanQuery = cleanQuery.replaceAll("(?<!\\.)\\*", ".*");
+        
+        String queryQualification = "";
+        int dotIndex = cleanQuery.lastIndexOf('.');
+        if (dotIndex > 0) {
+            // For a query like java.io.paths.File*, queryQualification is java.io.paths
+            queryQualification = cleanQuery.substring(0, dotIndex);
+        }
+        
+        // Delegate to the main matching logic with the extracted qualification
+        return queryQualificationMatches(query, queryQualification, matchedElement, unit, location);
     }
 }

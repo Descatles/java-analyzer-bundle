@@ -66,20 +66,22 @@ public class ConstructorCallSymbolProvider implements SymbolProvider, WithQuery 
                         unit = cls.getWorkingCopy(new WorkingCopyOwnerImpl(), null);
                     }
                 }
-                ASTParser astParser = ASTParser.newParser(AST.getJLSLatest());
-                astParser.setSource(unit);
-                astParser.setResolveBindings(true);
-                CompilationUnit cu = (CompilationUnit) astParser.createAST(null);
-                CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.CONSTRUCTOR_CALL);
-                // Under tests, resolveConstructorBinding will return null if there are problems
-                cu.accept(visitor);
-                if (visitor.symbolMatches()) {
-                    symbols.add(symbol);
-                }
-                if (unit != null && unit.isWorkingCopy())  {
-                    synchronized (SymbolProvider.LOCATION_LOCK) {
-                        unit.discardWorkingCopy();
-                        unit.close();
+                if (this.queryQualificationMatchesForConstructor(this.query, element, unit, location)) {
+                    ASTParser astParser = ASTParser.newParser(AST.getJLSLatest());
+                    astParser.setSource(unit);
+                    astParser.setResolveBindings(true);
+                    CompilationUnit cu = (CompilationUnit) astParser.createAST(null);
+                    CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.CONSTRUCTOR_CALL);
+                    // Under tests, resolveConstructorBinding will return null if there are problems
+                    cu.accept(visitor);
+                    if (visitor.symbolMatches()) {
+                        symbols.add(symbol);
+                    }
+                    if (unit != null && unit.isWorkingCopy())  {
+                        synchronized (SymbolProvider.LOCATION_LOCK) {
+                            unit.discardWorkingCopy();
+                            unit.close();
+                        }
                     }
                 }
             } else {
