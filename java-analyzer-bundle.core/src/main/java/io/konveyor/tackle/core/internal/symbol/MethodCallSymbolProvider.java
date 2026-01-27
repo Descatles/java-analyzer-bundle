@@ -39,15 +39,21 @@ public class MethodCallSymbolProvider implements SymbolProvider, WithQuery {
                 CompilationUnitCache cache = CompilationUnitCache.getInstance();
                 ICompilationUnit unit = cache.getCompilationUnit(e);
                 
-                if (unit != null && this.queryQualificationMatches(this.query, unit, location)) {
-                    // Use cached AST instead of parsing each time
-                    CompilationUnit cu = cache.getAST(unit);
-                    if (cu != null) {
-                        CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.METHOD_CALL);
-                        cu.accept(visitor);
-                        if (visitor.symbolMatches()) {
-                            symbols.add(symbol);
+                // queryQualificationMatches can work with null unit (checks location URI first)
+                if (this.queryQualificationMatches(this.query, unit, location)) {
+                    if (unit != null) {
+                        // Use cached AST instead of parsing each time
+                        CompilationUnit cu = cache.getAST(unit);
+                        if (cu != null) {
+                            CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.METHOD_CALL);
+                            cu.accept(visitor);
+                            if (visitor.symbolMatches()) {
+                                symbols.add(symbol);
+                            }
                         }
+                    } else {
+                        // unit is null but qualification matched via location URI
+                        symbols.add(symbol);
                     }
                 }
                 // NOTE: Do NOT call unit.discardWorkingCopy() or unit.close() 
