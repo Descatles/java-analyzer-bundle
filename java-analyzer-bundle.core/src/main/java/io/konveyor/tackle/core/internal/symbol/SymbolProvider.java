@@ -241,6 +241,12 @@ public interface SymbolProvider {
                         return true;
                     }
                 }
+
+                // Handle java.lang.* automatic imports
+                if (queryQualification.startsWith("java.lang.") || queryQualification.equals("java.lang")) {
+                    return true;
+                }
+
                 for (IImportDeclaration importDecl : unit.getImports()) {
                     String importElement = importDecl.getElementName();
                     String importQualification = "";
