@@ -9,7 +9,6 @@ import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IMethod;
-import org.eclipse.jdt.core.ITypeRoot;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
@@ -21,8 +20,9 @@ import org.eclipse.lsp4j.SymbolKind;
 
 import io.konveyor.tackle.core.internal.symbol.CustomASTVisitor.QueryLocation;
 
-public class MethodCallSymbolProvider implements SymbolProvider, WithQuery {
+public class MethodCallSymbolProvider implements SymbolProvider, WithQuery, WithCache {
     private String query;
+    private CompilationUnitCache cache;
     
     @Override
     public List<SymbolInformation> get(SearchMatch match) {
@@ -39,26 +39,48 @@ public class MethodCallSymbolProvider implements SymbolProvider, WithQuery {
             symbol.setContainerName(e.getParent().getElementName());
             symbol.setLocation(location); 
             if (this.query.contains(".")) { 
-                ICompilationUnit unit = e.getCompilationUnit();
-                if (unit == null) {
-                    IClassFile cls = (IClassFile) ((IJavaElement) e).getAncestor(IJavaElement.CLASS_FILE);
-                    if (cls != null) {
-                        unit = cls.getWorkingCopy(new WorkingCopyOwnerImpl(), null);
+                ICompilationUnit unit = null;
+                boolean needsCleanup = false;
+                
+                if (cache != null) {
+                    unit = cache.getCompilationUnit(e);
+                } else {
+                    unit = e.getCompilationUnit();
+                    if (unit == null) {
+                        IClassFile cls = (IClassFile) ((IJavaElement) e).getAncestor(IJavaElement.CLASS_FILE);
+                        if (cls != null) {
+                            unit = cls.getWorkingCopy(new WorkingCopyOwnerImpl(), null);
+                            needsCleanup = true;
+                        }
                     }
                 }
-                if (this.queryQualificationMatches(this.query, unit, location)) {
-                    ASTParser astParser = ASTParser.newParser(AST.getJLSLatest());
-                    astParser.setSource(unit);
-                    astParser.setResolveBindings(true);
-                    CompilationUnit cu = (CompilationUnit) astParser.createAST(null);
-                    CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.METHOD_CALL);
-                    cu.accept(visitor);
-                    if (visitor.symbolMatches()) {
-                        symbols.add(symbol);
+                
+                try {
+                    if (this.queryQualificationMatches(this.query, unit, location)) {
+                        CompilationUnit cu = null;
+                        if (cache != null) {
+                            cu = cache.getAST(unit);
+                        } else if (unit != null) {
+                            ASTParser astParser = ASTParser.newParser(AST.getJLSLatest());
+                            astParser.setSource(unit);
+                            astParser.setResolveBindings(true);
+                            cu = (CompilationUnit) astParser.createAST(null);
+                        }
+                        
+                        if (cu != null) {
+                            CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.METHOD_CALL);
+                            cu.accept(visitor);
+                            if (visitor.symbolMatches()) {
+                                symbols.add(symbol);
+                            }
+                        }
+                    }
+                } finally {
+                    if (needsCleanup && unit != null) {
+                        unit.discardWorkingCopy();
+                        unit.close();
                     }
                 }
-                unit.discardWorkingCopy();
-                unit.close();
             } else {
                 symbols.add(symbol);
             }
@@ -68,8 +90,14 @@ public class MethodCallSymbolProvider implements SymbolProvider, WithQuery {
 
         return symbols;
     }
+    
     @Override
     public void setQuery(String query) {
         this.query = query;
+    }
+    
+    @Override
+    public void setCache(CompilationUnitCache cache) {
+        this.cache = cache;
     }
 }

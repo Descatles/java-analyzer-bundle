@@ -32,9 +32,10 @@ import org.eclipse.lsp4j.SymbolKind;
 
 import io.konveyor.tackle.core.internal.query.AnnotationQuery;
 
-public class TypeSymbolProvider implements SymbolProvider, WithQuery, WithAnnotationQuery {
+public class TypeSymbolProvider implements SymbolProvider, WithQuery, WithAnnotationQuery, WithCache {
     private String query;
     private AnnotationQuery annotationQuery;
+    private CompilationUnitCache cache;
 
     @Override
     public List<SymbolInformation> get(SearchMatch match) {
@@ -61,21 +62,14 @@ public class TypeSymbolProvider implements SymbolProvider, WithQuery, WithAnnota
                     qualification = this.query.substring(0, dotIndex);
                 }
                 var element = (IJavaElement) match.getElement();
-                ICompilationUnit compilationUnit = (ICompilationUnit) element
-                        .getAncestor(IJavaElement.COMPILATION_UNIT);
-                if (compilationUnit == null) {
-                    IClassFile cls = (IClassFile) element.getAncestor(IJavaElement.CLASS_FILE);
-                    if (cls != null) {
-                        // TODO: make sure following doesn't affect performance
-                        // compilationUnit = cls.becomeWorkingCopy(null, null, null);
-                        compilationUnit = cls.getWorkingCopy(new WorkingCopyOwnerImpl(), null);
-                    }
-                }
+                ICompilationUnit compilationUnit = cache != null 
+                    ? cache.getCompilationUnit(element)
+                    : (ICompilationUnit) element.getAncestor(IJavaElement.COMPILATION_UNIT);
                 boolean isAccurate = false;
                 Location location = getLocation((IJavaElement) match.getElement(), match);
                 // if the file is in the same package as the query
                 // there's a high chance its an accurate match
-                if (qualification != "" && location.getUri().contains(qualification.replaceAll(".", "/"))) {
+                if (qualification != "" && location.getUri().contains(qualification.replaceAll("\\.", "/"))) {
                     isAccurate = true;
                 }
                 if (compilationUnit != null && !isAccurate) {
@@ -95,14 +89,12 @@ public class TypeSymbolProvider implements SymbolProvider, WithQuery, WithAnnota
                                 isAccurate = true;
                             }
                             if (qualification != "" &&
-                                    importElement.replaceAll(".*", "").matches(qualification)) {
+                                    importElement.replaceAll("\\.\\*$", "").matches(qualification)) {
                                 isAccurate = true;
                             }
                         }
                     }
                 }
-                compilationUnit.discardWorkingCopy();
-                compilationUnit.close();
                 if (!isAccurate) {
                     return null;
                 }
@@ -148,5 +140,10 @@ public class TypeSymbolProvider implements SymbolProvider, WithQuery, WithAnnota
     @Override
     public void setAnnotationQuery(AnnotationQuery annotationQuery) {
         this.annotationQuery = annotationQuery;
+    }
+    
+    @Override
+    public void setCache(CompilationUnitCache cache) {
+        this.cache = cache;
     }
 }

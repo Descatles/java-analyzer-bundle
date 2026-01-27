@@ -22,8 +22,9 @@ import org.eclipse.lsp4j.SymbolKind;
 
 import io.konveyor.tackle.core.internal.symbol.CustomASTVisitor.QueryLocation;
 
-public class ConstructorCallSymbolProvider implements SymbolProvider, WithQuery {
+public class ConstructorCallSymbolProvider implements SymbolProvider, WithQuery, WithCache {
     public String query;
+    private CompilationUnitCache cache;
 
     @Override
     public List<SymbolInformation> get(SearchMatch match) throws CoreException {
@@ -45,26 +46,48 @@ public class ConstructorCallSymbolProvider implements SymbolProvider, WithQuery 
             symbol.setContainerName(mod.getParent().getElementName());
             symbol.setLocation(location);
             if (this.query.contains(".")) {
-                ICompilationUnit unit = mod.getCompilationUnit();
-                if (unit == null) {
-                    IClassFile cls = (IClassFile) ((IJavaElement) mod).getAncestor(IJavaElement.CLASS_FILE);
-                    if (cls != null) {
-                        unit = cls.getWorkingCopy(new WorkingCopyOwnerImpl(), null);
+                ICompilationUnit unit = null;
+                boolean needsCleanup = false;
+                
+                if (cache != null) {
+                    unit = cache.getCompilationUnit(mod);
+                } else {
+                    unit = mod.getCompilationUnit();
+                    if (unit == null) {
+                        IClassFile cls = (IClassFile) ((IJavaElement) mod).getAncestor(IJavaElement.CLASS_FILE);
+                        if (cls != null) {
+                            unit = cls.getWorkingCopy(new WorkingCopyOwnerImpl(), null);
+                            needsCleanup = true;
+                        }
                     }
                 }
-                if (this.queryQualificationMatches(this.query, unit, location)) {
-                    ASTParser astParser = ASTParser.newParser(AST.getJLSLatest());
-                    astParser.setSource(unit);
-                    astParser.setResolveBindings(true);
-                    CompilationUnit cu = (CompilationUnit) astParser.createAST(null);
-                    CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.CONSTRUCTOR_CALL);
-                    cu.accept(visitor);
-                    if (visitor.symbolMatches()) {
-                        symbols.add(symbol);
+                
+                try {
+                    if (this.queryQualificationMatches(this.query, unit, location)) {
+                        CompilationUnit cu = null;
+                        if (cache != null) {
+                            cu = cache.getAST(unit);
+                        } else if (unit != null) {
+                            ASTParser astParser = ASTParser.newParser(AST.getJLSLatest());
+                            astParser.setSource(unit);
+                            astParser.setResolveBindings(true);
+                            cu = (CompilationUnit) astParser.createAST(null);
+                        }
+                        
+                        if (cu != null) {
+                            CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.CONSTRUCTOR_CALL);
+                            cu.accept(visitor);
+                            if (visitor.symbolMatches()) {
+                                symbols.add(symbol);
+                            }
+                        }
+                    }
+                } finally {
+                    if (needsCleanup && unit != null) {
+                        unit.discardWorkingCopy();
+                        unit.close();
                     }
                 }
-                unit.discardWorkingCopy();
-                unit.close();
             } else {
                 symbols.add(symbol);
             }
@@ -77,7 +100,11 @@ public class ConstructorCallSymbolProvider implements SymbolProvider, WithQuery 
 
     @Override
     public void setQuery(String query) {
-        // TODO Auto-generated method stub
         this.query = query;
+    }
+    
+    @Override
+    public void setCache(CompilationUnitCache cache) {
+        this.cache = cache;
     }
 }

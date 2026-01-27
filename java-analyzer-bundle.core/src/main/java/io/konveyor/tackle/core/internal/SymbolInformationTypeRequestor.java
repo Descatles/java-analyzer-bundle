@@ -16,9 +16,11 @@ import org.eclipse.jdt.ls.core.internal.ResourceUtils;
 import org.eclipse.lsp4j.SymbolInformation;
 
 import io.konveyor.tackle.core.internal.query.AnnotationQuery;
+import io.konveyor.tackle.core.internal.symbol.CompilationUnitCache;
 import io.konveyor.tackle.core.internal.symbol.SymbolProvider;
 import io.konveyor.tackle.core.internal.symbol.SymbolProviderResolver;
 import io.konveyor.tackle.core.internal.symbol.WithAnnotationQuery;
+import io.konveyor.tackle.core.internal.symbol.WithCache;
 import io.konveyor.tackle.core.internal.symbol.WithMaxResults;
 import io.konveyor.tackle.core.internal.symbol.WithQuery;
 
@@ -35,6 +37,12 @@ public class SymbolInformationTypeRequestor extends SearchRequestor {
     private SymbolProviderResolver resolver;
     private long totalProviderNanos;
     private int providerCalls;
+    
+    // Cached SymbolProvider instance - reused for all matches
+    private SymbolProvider cachedSymbolProvider;
+    
+    // Cache for CompilationUnits and ASTs
+    private CompilationUnitCache compilationUnitCache;
 
 
     public SymbolInformationTypeRequestor(List<SymbolInformation> symbols, int maxResults, IProgressMonitor monitor, int symbolKind, String query, AnnotationQuery annotationQuery) {
@@ -49,6 +57,24 @@ public class SymbolInformationTypeRequestor extends SearchRequestor {
             this.maxResults = 10000;
         }
         resolver = new SymbolProviderResolver();
+        
+        // Create shared cache for all matches
+        this.compilationUnitCache = new CompilationUnitCache();
+        
+        // Create and configure SymbolProvider once, reuse for all matches
+        this.cachedSymbolProvider = resolver.resolve(this.symbolKind).get();
+        if (cachedSymbolProvider instanceof WithQuery) {
+            ((WithQuery) cachedSymbolProvider).setQuery(this.query);
+        }
+        if (cachedSymbolProvider instanceof WithAnnotationQuery) {
+            ((WithAnnotationQuery) cachedSymbolProvider).setAnnotationQuery(this.annotationQuery);
+        }
+        if (cachedSymbolProvider instanceof WithMaxResults) {
+            ((WithMaxResults) cachedSymbolProvider).setMaxResultes(this.maxResults);
+        }
+        if (cachedSymbolProvider instanceof WithCache) {
+            ((WithCache) cachedSymbolProvider).setCache(this.compilationUnitCache);
+        }
     }
 
 
@@ -75,20 +101,9 @@ public class SymbolInformationTypeRequestor extends SearchRequestor {
 
         }
 
-        SymbolProvider symbolProvider = resolver.resolve(this.symbolKind).get();
-        if (symbolProvider instanceof WithQuery) {
-            ((WithQuery) symbolProvider).setQuery(this.query);
-        }
-        if (symbolProvider instanceof WithAnnotationQuery) {
-            ((WithAnnotationQuery) symbolProvider).setAnnotationQuery(this.annotationQuery);
-        }
-        if (symbolProvider instanceof WithMaxResults) {
-            ((WithMaxResults) symbolProvider).setMaxResultes(this.maxResults);
-        }
-
-        logInfo("getting match: " + match + "with provider: " + symbolProvider);
+        logInfo("getting match: " + match + "with provider: " + cachedSymbolProvider);
         long start = System.nanoTime();
-        List<SymbolInformation> symbols = Optional.ofNullable(symbolProvider.get(match)).orElse(new ArrayList<>());
+        List<SymbolInformation> symbols = Optional.ofNullable(cachedSymbolProvider.get(match)).orElse(new ArrayList<>());
         long elapsed = System.nanoTime() - start;
         totalProviderNanos += elapsed;
         providerCalls++;
@@ -109,6 +124,14 @@ public class SymbolInformationTypeRequestor extends SearchRequestor {
 
     public int getProviderCalls() {
         return this.providerCalls;
+    }
+    
+    @Override
+    public void endReporting() {
+        // Cleanup cached resources when search is complete
+        if (compilationUnitCache != null) {
+            compilationUnitCache.dispose();
+        }
     }
 
     // This will determine if there are error markers for the primary element that is associated with this
