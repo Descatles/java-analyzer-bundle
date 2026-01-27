@@ -6,12 +6,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.eclipse.core.runtime.CoreException;
-import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IMethod;
-import org.eclipse.jdt.core.dom.AST;
-import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.search.MethodReferenceMatch;
 import org.eclipse.jdt.core.search.SearchMatch;
@@ -45,26 +42,23 @@ public class ConstructorCallSymbolProvider implements SymbolProvider, WithQuery 
             symbol.setContainerName(mod.getParent().getElementName());
             symbol.setLocation(location);
             if (this.query.contains(".")) {
-                ICompilationUnit unit = mod.getCompilationUnit();
-                if (unit == null) {
-                    IClassFile cls = (IClassFile) ((IJavaElement) mod).getAncestor(IJavaElement.CLASS_FILE);
-                    if (cls != null) {
-                        unit = cls.getWorkingCopy(new WorkingCopyOwnerImpl(), null);
+                // Use cached compilation unit instead of creating new working copy each time
+                CompilationUnitCache cache = CompilationUnitCache.getInstance();
+                ICompilationUnit unit = cache.getCompilationUnit(mod);
+                
+                if (unit != null && this.queryQualificationMatches(this.query, unit, location)) {
+                    // Use cached AST instead of parsing each time
+                    CompilationUnit cu = cache.getAST(unit);
+                    if (cu != null) {
+                        CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.CONSTRUCTOR_CALL);
+                        cu.accept(visitor);
+                        if (visitor.symbolMatches()) {
+                            symbols.add(symbol);
+                        }
                     }
                 }
-                if (this.queryQualificationMatches(this.query, unit, location)) {
-                    ASTParser astParser = ASTParser.newParser(AST.getJLSLatest());
-                    astParser.setSource(unit);
-                    astParser.setResolveBindings(true);
-                    CompilationUnit cu = (CompilationUnit) astParser.createAST(null);
-                    CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.CONSTRUCTOR_CALL);
-                    cu.accept(visitor);
-                    if (visitor.symbolMatches()) {
-                        symbols.add(symbol);
-                    }
-                }
-                unit.discardWorkingCopy();
-                unit.close();
+                // NOTE: Do NOT call unit.discardWorkingCopy() or unit.close() 
+                // as the unit is managed by the cache
             } else {
                 symbols.add(symbol);
             }

@@ -28,6 +28,7 @@ import org.eclipse.jdt.ls.core.internal.ResourceUtils;
 import org.eclipse.lsp4j.SymbolInformation;
 
 import io.konveyor.tackle.core.internal.query.AnnotationQuery;
+import io.konveyor.tackle.core.internal.symbol.CompilationUnitCache;
 import io.konveyor.tackle.core.internal.util.OpenSourceFilteredSearchScope;
 import io.konveyor.tackle.core.internal.util.OpenSourceLibraryExclusionManager;
 
@@ -344,6 +345,9 @@ public class SampleDelegateCommandHandler implements IDelegateCommandHandler {
             " search matches for " + query +
             " location " + location
             + " matches" + requestor.getSymbols().size());
+
+        // Log cache statistics for performance monitoring
+        logInfo("KONVEYOR_LOG_CACHE: " + CompilationUnitCache.getInstance().getCacheStats());
 
         logInfo("KONVEYOR_LOG_PROFILE: query=" + query +
             " location=" + location +

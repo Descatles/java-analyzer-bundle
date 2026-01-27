@@ -10,7 +10,6 @@ import java.util.regex.Pattern;
 
 import org.eclipse.core.runtime.URIUtil;
 import org.eclipse.jdt.core.IAnnotation;
-import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.IJavaElement;
@@ -61,16 +60,11 @@ public class TypeSymbolProvider implements SymbolProvider, WithQuery, WithAnnota
                     qualification = this.query.substring(0, dotIndex);
                 }
                 var element = (IJavaElement) match.getElement();
-                ICompilationUnit compilationUnit = (ICompilationUnit) element
-                        .getAncestor(IJavaElement.COMPILATION_UNIT);
-                if (compilationUnit == null) {
-                    IClassFile cls = (IClassFile) element.getAncestor(IJavaElement.CLASS_FILE);
-                    if (cls != null) {
-                        // TODO: make sure following doesn't affect performance
-                        // compilationUnit = cls.becomeWorkingCopy(null, null, null);
-                        compilationUnit = cls.getWorkingCopy(new WorkingCopyOwnerImpl(), null);
-                    }
-                }
+                
+                // Use cached compilation unit instead of creating new working copy each time
+                CompilationUnitCache cache = CompilationUnitCache.getInstance();
+                ICompilationUnit compilationUnit = cache.getCompilationUnit(element);
+                
                 boolean isAccurate = false;
                 Location location = getLocation((IJavaElement) match.getElement(), match);
                 // if the file is in the same package as the query
@@ -101,8 +95,8 @@ public class TypeSymbolProvider implements SymbolProvider, WithQuery, WithAnnota
                         }
                     }
                 }
-                compilationUnit.discardWorkingCopy();
-                compilationUnit.close();
+                // NOTE: Do NOT call compilationUnit.discardWorkingCopy() or compilationUnit.close() 
+                // as the unit is managed by the cache
                 if (!isAccurate) {
                     return null;
                 }
