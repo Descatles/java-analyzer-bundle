@@ -3,12 +3,25 @@ package io.konveyor.tackle.core.internal.query;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 /**
  * Represents additional query information to inspect annotations in annotated symbols.
  */
 public class AnnotationQuery {
+
+    // Cache for compiled annotation type patterns to avoid recompilation on each match
+    private static final Map<String, Pattern> PATTERN_CACHE = new ConcurrentHashMap<>();
+
+    /**
+     * Gets a compiled Pattern for the given regex, using cache to avoid recompilation.
+     * @param regex the regex string to compile
+     * @return compiled Pattern
+     */
+    private static Pattern getCompiledPattern(String regex) {
+        return PATTERN_CACHE.computeIfAbsent(regex, Pattern::compile);
+    }
 
     /**
      * The annotation type, ie: <code>@org.business.BeanAnnotation</code>
@@ -51,7 +64,8 @@ public class AnnotationQuery {
         if (isOnAnnotation() && getType() == null) {
             return true;
         } else {
-            return Pattern.matches(getType(), annotation);
+            // Use cached compiled pattern instead of Pattern.matches() which compiles on each call
+            return getCompiledPattern(getType()).matcher(annotation).matches();
         }
     }
 

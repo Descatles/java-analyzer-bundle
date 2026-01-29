@@ -14,12 +14,28 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 /**
  * Mixin interface for {@link SymbolProvider}s that allows for Annotation queries to be performed.
  */
 public interface WithAnnotationQuery {
+    // Pre-compiled pattern for checking if annotation name contains a dot (is FQN)
+    static final Pattern FQN_CHECK_PATTERN = Pattern.compile(".*\\.");
+
+    // Cache for dynamically compiled patterns (annotation element value patterns)
+    static final Map<String, Pattern> PATTERN_CACHE = new ConcurrentHashMap<>();
+
+    /**
+     * Gets a compiled Pattern for the given regex, using cache to avoid recompilation.
+     * @param regex the regex string to compile
+     * @return compiled Pattern
+     */
+    static Pattern getCompiledPattern(String regex) {
+        return PATTERN_CACHE.computeIfAbsent(regex, Pattern::compile);
+    }
+
     AnnotationQuery getAnnotationQuery();
     void setAnnotationQuery(AnnotationQuery annotationQuery);
 
@@ -144,17 +160,21 @@ public interface WithAnnotationQuery {
                 for (Map.Entry<String, String> ruleAnnotationElem : ruleAnnotationElems) {
                     String ruleAnnotationElementName = ruleAnnotationElem.getKey();
                     if (ruleAnnotationElementName.equals(member.getMemberName())) {
+                        // Pre-compile the value pattern once for this element
+                        Pattern valuePattern = getCompiledPattern(ruleAnnotationElem.getValue());
                         // Member values can be arrays. In this case, lets iterate over it and compare:
                         if (member.getValue() instanceof Object[]) {
                             Object[] values = (Object[]) member.getValue();
                             // TODO: at the moment we are just toString()ing the values.
                             //  We might want to make this more sophisticated, relying on
                             //  member.getValueKind() to match on specific kinds. This however can match
-                            boolean valueMatches = Arrays.stream(values).anyMatch(v -> Pattern.matches(ruleAnnotationElem.getValue(), v.toString()));
+                            // Use pre-compiled pattern instead of Pattern.matches()
+                            boolean valueMatches = Arrays.stream(values).anyMatch(v -> valuePattern.matcher(v.toString()).matches());
                             oneElementMatched |= valueMatches;
                             allElementsMatch &= valueMatches;
                         } else {
-                            boolean valueMatches = Pattern.matches(ruleAnnotationElem.getValue(), member.getValue().toString());
+                            // Use pre-compiled pattern instead of Pattern.matches()
+                            boolean valueMatches = valuePattern.matcher(member.getValue().toString()).matches();
                             oneElementMatched |= valueMatches;
                             allElementsMatch &= valueMatches;
                         }
@@ -182,7 +202,8 @@ public interface WithAnnotationQuery {
      */
     private String getFQN(IAnnotation annotation) {
         String name = annotation.getElementName();
-        if (Pattern.matches(".*\\.", name)) {
+        // Use pre-compiled pattern instead of Pattern.matches() which compiles on each call
+        if (FQN_CHECK_PATTERN.matcher(name).matches()) {
             // If the name of the annotation has a dot on it, it's a fqn
             return name;
         } else {
