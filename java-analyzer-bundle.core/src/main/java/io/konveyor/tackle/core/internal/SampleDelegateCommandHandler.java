@@ -31,6 +31,7 @@ import io.konveyor.tackle.core.internal.query.AnnotationQuery;
 import io.konveyor.tackle.core.internal.symbol.ASTCache;
 import io.konveyor.tackle.core.internal.util.OpenSourceFilteredSearchScope;
 import io.konveyor.tackle.core.internal.util.OpenSourceLibraryExclusionManager;
+import io.konveyor.tackle.core.internal.util.PathMappingCache;
 
 public class SampleDelegateCommandHandler implements IDelegateCommandHandler {
 
@@ -238,21 +239,14 @@ public class SampleDelegateCommandHandler implements IDelegateCommandHandler {
 
         if (includedPaths != null && includedPaths.size() > 0) {
             ArrayList<IJavaElement> includedFragments = new ArrayList<IJavaElement>();
+            // Get workspace path once, outside the loops
+            IPath workspacePath = workspaceDirectoryLocation.iterator().next();
             for (IJavaProject proj : targetProjects) {
                 for (String includedPath : includedPaths) {
                     IPath includedIPath = Path.fromOSString(includedPath);
                     if (includedIPath.isAbsolute()) {
-                        includedIPath = includedIPath.makeRelativeTo(workspaceDirectoryLocation.iterator().next());
-                        // we need to remove the /src/java from the path
-                        if (includedIPath.segment(0).equals("src")) {
-                            includedIPath = includedIPath.removeFirstSegments(1);
-                        }
-                        if (includedIPath.segment(0).equals("main")) {
-                            includedIPath = includedIPath.removeFirstSegments(1);
-                        }
-                        if (includedIPath.segment(0).equals("java")) {
-                            includedIPath = includedIPath.removeFirstSegments(1);
-                        }
+                        // Use cached path normalization instead of inline segment removal
+                        includedIPath = PathMappingCache.getNormalizedRelativePath(includedPath, workspacePath);
                         var element = proj.findElement(includedIPath);
                         if (element == null) {
                             element = proj.findElement(includedIPath.removeLastSegments(1));
@@ -287,7 +281,7 @@ public class SampleDelegateCommandHandler implements IDelegateCommandHandler {
                         // instead of comparing path strings, comparing segments is better for 2 reasons:
                         // - we don't have to worry about redundant . / etc in input
                         // - matching sub-trees is easier with segments than strings
-                        if (includedIPath.segmentCount() <= fragmentPath.segmentCount() && 
+                        if (includedIPath.segmentCount() <= fragmentPath.segmentCount() &&
                             includedIPath.matchingFirstSegments(fragmentPath) == includedIPath.segmentCount()) {
                             includedFragments.add(fragment);
                         }
@@ -341,11 +335,14 @@ public class SampleDelegateCommandHandler implements IDelegateCommandHandler {
 
         long tTotal = System.nanoTime() - t0;
 
-        // Clear the AST cache at the end of each search to free memory
+        // Clear caches at the end of each search to free memory
         // Log cache stats before clearing for performance monitoring
         logInfo("KONVEYOR_LOG_CACHE: " + ASTCache.getStats());
+        logInfo("KONVEYOR_LOG_CACHE: " + PathMappingCache.getStats());
         ASTCache.clear();
         ASTCache.resetStats();
+        PathMappingCache.clear();
+        PathMappingCache.resetStats();
 
         logInfo("KONVEYOR_LOG: got: " + requestor.getAllSearchMatches() +
             " search matches for " + query +
