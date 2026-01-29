@@ -28,6 +28,7 @@ import org.eclipse.jdt.ls.core.internal.ResourceUtils;
 import org.eclipse.lsp4j.SymbolInformation;
 
 import io.konveyor.tackle.core.internal.query.AnnotationQuery;
+import io.konveyor.tackle.core.internal.symbol.ASTCache;
 import io.konveyor.tackle.core.internal.util.OpenSourceFilteredSearchScope;
 import io.konveyor.tackle.core.internal.util.OpenSourceLibraryExclusionManager;
 
@@ -339,6 +340,12 @@ public class SampleDelegateCommandHandler implements IDelegateCommandHandler {
         long tSearch = System.nanoTime() - tSearchStart;
 
         long tTotal = System.nanoTime() - t0;
+
+        // Clear the AST cache at the end of each search to free memory
+        // Log cache stats before clearing for performance monitoring
+        logInfo("KONVEYOR_LOG_CACHE: " + ASTCache.getStats());
+        ASTCache.clear();
+        ASTCache.resetStats();
 
         logInfo("KONVEYOR_LOG: got: " + requestor.getAllSearchMatches() +
             " search matches for " + query +

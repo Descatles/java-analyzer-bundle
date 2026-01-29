@@ -10,8 +10,6 @@ import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.ITypeRoot;
-import org.eclipse.jdt.core.dom.AST;
-import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.search.MethodReferenceMatch;
 import org.eclipse.jdt.core.search.SearchMatch;
@@ -23,7 +21,7 @@ import io.konveyor.tackle.core.internal.symbol.CustomASTVisitor.QueryLocation;
 
 public class MethodCallSymbolProvider implements SymbolProvider, WithQuery {
     private String query;
-    
+
     @Override
     public List<SymbolInformation> get(SearchMatch match) {
         SymbolKind k = convertSymbolKind((IJavaElement) match.getElement());
@@ -37,27 +35,32 @@ public class MethodCallSymbolProvider implements SymbolProvider, WithQuery {
             symbol.setName(e.getElementName());
             symbol.setKind(convertSymbolKind(e));
             symbol.setContainerName(e.getParent().getElementName());
-            symbol.setLocation(location); 
-            if (this.query.contains(".")) { 
+            symbol.setLocation(location);
+            if (this.query.contains(".")) {
                 ICompilationUnit unit = e.getCompilationUnit();
+                boolean isWorkingCopy = false;
                 if (unit == null) {
                     IClassFile cls = (IClassFile) ((IJavaElement) e).getAncestor(IJavaElement.CLASS_FILE);
                     if (cls != null) {
                         unit = cls.getWorkingCopy(new WorkingCopyOwnerImpl(), null);
+                        isWorkingCopy = true;
                     }
                 }
                 if (this.queryQualificationMatches(this.query, unit, location)) {
-                    ASTParser astParser = ASTParser.newParser(AST.getJLSLatest());
-                    astParser.setSource(unit);
-                    astParser.setResolveBindings(true);
-                    CompilationUnit cu = (CompilationUnit) astParser.createAST(null);
-                    CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.METHOD_CALL);
-                    cu.accept(visitor);
-                    if (visitor.symbolMatches()) {
-                        symbols.add(symbol);
+                    // Use cached AST instead of parsing every time
+                    CompilationUnit cu = ASTCache.getAST(unit);
+                    if (cu != null) {
+                        CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.METHOD_CALL);
+                        cu.accept(visitor);
+                        if (visitor.symbolMatches()) {
+                            symbols.add(symbol);
+                        }
                     }
                 }
-                unit.discardWorkingCopy();
+                // Only discard working copy if we created one
+                if (isWorkingCopy) {
+                    unit.discardWorkingCopy();
+                }
                 unit.close();
             } else {
                 symbols.add(symbol);

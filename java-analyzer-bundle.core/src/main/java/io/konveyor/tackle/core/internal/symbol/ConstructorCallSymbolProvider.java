@@ -10,8 +10,6 @@ import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IMethod;
-import org.eclipse.jdt.core.dom.AST;
-import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.search.MethodReferenceMatch;
 import org.eclipse.jdt.core.search.SearchMatch;
@@ -46,24 +44,29 @@ public class ConstructorCallSymbolProvider implements SymbolProvider, WithQuery 
             symbol.setLocation(location);
             if (this.query.contains(".")) {
                 ICompilationUnit unit = mod.getCompilationUnit();
+                boolean isWorkingCopy = false;
                 if (unit == null) {
                     IClassFile cls = (IClassFile) ((IJavaElement) mod).getAncestor(IJavaElement.CLASS_FILE);
                     if (cls != null) {
                         unit = cls.getWorkingCopy(new WorkingCopyOwnerImpl(), null);
+                        isWorkingCopy = true;
                     }
                 }
                 if (this.queryQualificationMatches(this.query, unit, location)) {
-                    ASTParser astParser = ASTParser.newParser(AST.getJLSLatest());
-                    astParser.setSource(unit);
-                    astParser.setResolveBindings(true);
-                    CompilationUnit cu = (CompilationUnit) astParser.createAST(null);
-                    CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.CONSTRUCTOR_CALL);
-                    cu.accept(visitor);
-                    if (visitor.symbolMatches()) {
-                        symbols.add(symbol);
+                    // Use cached AST instead of parsing every time
+                    CompilationUnit cu = ASTCache.getAST(unit);
+                    if (cu != null) {
+                        CustomASTVisitor visitor = new CustomASTVisitor(query, match, QueryLocation.CONSTRUCTOR_CALL);
+                        cu.accept(visitor);
+                        if (visitor.symbolMatches()) {
+                            symbols.add(symbol);
+                        }
                     }
                 }
-                unit.discardWorkingCopy();
+                // Only discard working copy if we created one
+                if (isWorkingCopy) {
+                    unit.discardWorkingCopy();
+                }
                 unit.close();
             } else {
                 symbols.add(symbol);
